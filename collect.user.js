@@ -1,6 +1,7 @@
 // ==UserScript==
 // @name         CN Collect Advisor
 // @namespace    https://cn-collect.local
+// @author       Ari / Mochi
 // @version      1.0
 // @description  Warns you on a bad collect.
 // @match        https://www.cybernations.net/*
