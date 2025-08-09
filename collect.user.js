@@ -6,6 +6,8 @@
 // @match        https://www.cybernations.net/*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://github.com/oh-ari/cn-collect/raw/refs/heads/main/collect.user.js
+// @downloadURL  https://github.com/oh-ari/cn-collect/raw/refs/heads/main/collect.user.js
 // ==/UserScript==
 
 (function () {
