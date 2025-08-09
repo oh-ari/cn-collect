@@ -1,6 +1,6 @@
 # CN Collect Advisor
 
-<img width="2249" height="697" alt="image" src="https://github.com/user-attachments/assets/5a1eb753-802e-49c4-9006-6ba1116725f2" />
+<img width="1147" height="713" alt="{FCD53AA0-EE95-45FC-998F-A7A4F18D8B2F}" src="https://github.com/user-attachments/assets/fdc7a3ed-a304-4fc9-b74c-3f1ce999f299" />
 
 ## Features
 - Stores your DEFCON, Threat, Soldiers/Pop, and Improvements to localStorage.
