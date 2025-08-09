@@ -60,7 +60,7 @@
     return null;
   }
 
-  function scrapeImprovementsFlags() {
+  function getImprovementsFlags() {
     const a = document.querySelector('a[href*="about_topics.asp#Improvements"]');
     if (!a) return { hasGuerrillaCamps: false, hasLaborCamps: false, improvementsText: '' };
     const td = a.closest('tr')?.querySelectorAll('td')[1] || a.closest('td');
@@ -73,32 +73,54 @@
     };
   }
 
-  function scrapeTotalPopulation() {
+  function getTotalPopulation() {
     const valueTd = getValueTdForLabel((txt) => /^Total Population:/i.test(txt));
     if (!valueTd) return null;
     return parseFirstNumber(valueTd.textContent);
   }
 
-  function scrapeSoldiers() {
+  function getSoldiers() {
     const valueTd = getRowSecondCellByAnchor('#Military') ||
       getValueTdForLabel((txt) => /Number of Soldiers:/i.test(txt));
     if (!valueTd) return null;
     return parseFirstNumber(valueTd.textContent);
   }
 
-  function scrapeDefcon() {
+  function getDefcon() {
     const img = getRowSecondCellByAnchor('#DEFCON')?.querySelector('img[src*="DEFCON"]');
     const m = (img?.getAttribute('src') || '').match(/DEFCON(\d)\.gif/i);
     return m ? Number(m[1]) : null;
   }
 
-  function scrapeThreat() {
+  function getThreat() {
     const img = getRowSecondCellByAnchor('#Threat_Level')?.querySelector('img[src*="Threat"]');
     const m = (img?.getAttribute('src') || '').match(/Threat(\d)\.gif/i);
     if (!m) return null;
     const code = Number(m[1]);
     const map = { 1: 'Severe', 2: 'High', 3: 'Elevated', 4: 'Guarded', 5: 'Low' };
     return { code, name: map[code] || String(code) };
+  }
+
+  function getCrimeIndexAndCps() {
+    const td = getRowSecondCellByAnchor('#Crime_Index');
+    if (!td) return { crimeIndex: null, crimePreventionScore: null };
+    const text = (td.textContent || '').replace(/\s+/g, ' ').trim();
+    const mIdx = text.match(/Crime\s*Index\s*(\d+)/i);
+    const mCps = text.match(/Crime\s*Prevention\s*Score:\s*([0-9][0-9,]*)/i);
+    const crimeIndex = mIdx ? Number(mIdx[1]) : null;
+    const crimePreventionScore = mCps ? Number(mCps[1].replace(/,/g, '')) : null;
+    return { crimeIndex, crimePreventionScore };
+  }
+
+  function getTradeSlots() {
+    const valueTd = getValueTdForLabel((txt) => /^Trade Slots Used:/i.test(txt));
+    if (!valueTd) return { tradeSlotsUsed: null, tradeSlotsTotal: null };
+    const title = valueTd.querySelector('img[title*="trade slots" i]')?.getAttribute('title')
+      || (valueTd.textContent || '');
+    const m = title.match(/(\d+)\s*of\s*(\d+)\s*trade\s*slots/i);
+    const tradeSlotsUsed = m ? Number(m[1]) : null;
+    const tradeSlotsTotal = m ? Number(m[2]) : null;
+    return { tradeSlotsUsed, tradeSlotsTotal };
   }
 
   function saveNationStats(nationId, stats) {
@@ -156,11 +178,13 @@
     const myNationId = findNationIdFromSidebar();
     if (myNationId && nationId !== myNationId) return;
 
-    const imp = scrapeImprovementsFlags();
-    const totalPopulation = scrapeTotalPopulation();
-    const soldiers = scrapeSoldiers();
-    const defcon = scrapeDefcon();
-    const threat = scrapeThreat();
+    const imp = getImprovementsFlags();
+    const totalPopulation = getTotalPopulation();
+    const soldiers = getSoldiers();
+    const defcon = getDefcon();
+    const threat = getThreat();
+    const crime = getCrimeIndexAndCps();
+    const trade = getTradeSlots();
 
     const soldiersTarget25 = typeof totalPopulation === 'number' ? Math.floor(totalPopulation * 0.25) : null;
     const soldiersToSell = typeof soldiers === 'number' && typeof soldiersTarget25 === 'number' ? Math.max(0, soldiers - soldiersTarget25) : null;
@@ -176,6 +200,10 @@
       defcon,
       threatLevelCode: threat ? threat.code : null,
       threatLevelName: threat ? threat.name : null,
+      crimeIndex: crime ? crime.crimeIndex : null,
+      crimePreventionScore: crime ? crime.crimePreventionScore : null,
+      tradeSlotsUsed: trade ? trade.tradeSlotsUsed : null,
+      tradeSlotsTotal: trade ? trade.tradeSlotsTotal : null,
     });
   }
 
@@ -195,6 +223,7 @@
     const moneyAfterTr = moneyAfterLabelTd ? moneyAfterLabelTd.closest('tr') : null;
 
     const issues = [];
+    const notes = [];
     if (!stats) {
       issues.push('Nation details not found. Visit your "View My Nation" page first to capture current data.');
     }
@@ -212,7 +241,7 @@
         );
       }
     } else if (typeof effectiveStats.totalPopulation === 'number') {
-      const soldiersNow = scrapeSoldiers();
+      const soldiersNow = getSoldiers();
       if (typeof soldiersNow === 'number') {
         const cap = Math.floor(effectiveStats.totalPopulation * 0.25);
         const toSell = Math.max(0, soldiersNow - cap);
@@ -237,16 +266,28 @@
       issues.push(`Threat Level is <b>${name}</b>. Recommended: <b>Low</b>.`);
     }
 
-    if (issues.length === 0) return;
+    if (typeof effectiveStats.crimeIndex === 'number' && effectiveStats.crimeIndex >= 1 && effectiveStats.crimeIndex <= 6) {
+      issues.push(`Your Crime Index is <b>${effectiveStats.crimeIndex}</b>, check if there's more you can do with your government positions or improvements.`);
+    }
+
+    if (typeof effectiveStats.tradeSlotsUsed === 'number' && typeof effectiveStats.tradeSlotsTotal === 'number') {
+      if (effectiveStats.tradeSlotsUsed < effectiveStats.tradeSlotsTotal) {
+        issues.push('Your trade circle isn\'t complete.');
+      } else if (effectiveStats.tradeSlotsUsed >= effectiveStats.tradeSlotsTotal && effectiveStats.tradeSlotsTotal >= 5) {
+        notes.push("Your trade circle looks complete! Do you need to temp? If not, you can ignore this. Yay you!");
+      }
+    }
+
+    if (issues.length === 0 && notes.length === 0) return;
 
     const overrideId = 'cn_collect_override';
+    const hasWarnings = issues.length > 0;
+    const messages = issues.concat(notes);
     const panelHtml = `
       <div style="padding:4px;">
         <img src="images/ico_arr_gray.gif" width="11" height="11"> <b>Recommendations</b>
-        <ul style="margin-top:6px;">${issues.map((i) => `<li>${i}</li>`).join('')}</ul>
-        <div style="margin-top:8px;">
-          <label><input type="checkbox" id="${overrideId}"> I understand and want to collect taxes anyway (e.g., at war).</label>
-        </div>
+        <ul style="margin-top:6px;">${messages.map((i) => `<li>${i}</li>`).join('')}</ul>
+        ${hasWarnings ? `<div style="margin-top:8px;"><label><input type="checkbox" id="${overrideId}"> I understand and want to collect taxes anyway (e.g., at war).</label></div>` : ''}
       </div>
     `;
     const existing = document.getElementById('cn_collect_panel');
@@ -278,12 +319,14 @@
       form.parentNode.insertBefore(panel, form);
     }
 
-    setButtonDisabled(submitBtn, true);
-    const override = document.getElementById(overrideId);
-    if (override) {
-      override.addEventListener('change', () => {
-        setButtonDisabled(submitBtn, !override.checked);
-      });
+    setButtonDisabled(submitBtn, hasWarnings);
+    if (hasWarnings) {
+      const override = document.getElementById(overrideId);
+      if (override) {
+        override.addEventListener('change', () => {
+          setButtonDisabled(submitBtn, !override.checked);
+        });
+      }
     }
   }
 
