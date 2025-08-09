@@ -1,0 +1,305 @@
+// ==UserScript==
+// @name         CN Collect Advisor
+// @namespace    https://cn-collect.local
+// @version      1.0
+// @description  Warns you on a bad collect.
+// @match        https://www.cybernations.net/*
+// @run-at       document-idle
+// @grant        none
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  const STORAGE_PREFIX = 'cn:stats:';
+  const LAST_NATION_KEY = 'cn:lastNationId';
+
+  function parseFirstNumber(text) {
+    const m = text && String(text).replace(/[^0-9.,()\-\s]/g, ' ').match(/([0-9][0-9,]*\.?[0-9]*)/);
+    const n = m && Number(m[1].replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function findNationIdFromSidebar() {
+    const a = document.querySelector('a[href*="nation_drill_display.asp"][href*="Nation_ID="]');
+    if (!a) return null;
+    try { return new URL(a.href, location.origin).searchParams.get('Nation_ID'); } catch {}
+    const m = (a.getAttribute('href') || '').match(/Nation_ID=(\d+)/i);
+    return m ? m[1] : null;
+  }
+
+  function findNationIdFromPage() {
+    try {
+      const url = new URL(location.href);
+      const id = url.searchParams.get('Nation_ID');
+      if (id) return id;
+    } catch {}
+    const input = document.querySelector('input[name="Nation_ID"]');
+    if (input && input.value) return input.value.trim();
+    return findNationIdFromSidebar();
+  }
+
+  function getNationIdFromAny() {
+    return findNationIdFromPage() || (localStorage.getItem(LAST_NATION_KEY) || findNationIdFromSidebar());
+  }
+
+  function getRowSecondCellByAnchor(hrefContains) {
+    const a = document.querySelector(`a[href*="${hrefContains}"]`);
+    const tds = a && a.closest('tr')?.querySelectorAll('td');
+    return tds && tds.length > 1 ? tds[1] : null;
+  }
+
+  function getValueTdForLabel(labelMatcher) {
+    for (const td of document.querySelectorAll('td')) {
+      const txt = td.textContent?.trim().replace(/\s+/g, ' ') || '';
+      if (labelMatcher(txt, td)) {
+        const cells = td.closest('tr')?.querySelectorAll('td');
+        if (cells?.length > 1) return cells[1];
+      }
+    }
+    return null;
+  }
+
+  function scrapeImprovementsFlags() {
+    const a = document.querySelector('a[href*="about_topics.asp#Improvements"]');
+    if (!a) return { hasGuerrillaCamps: false, hasLaborCamps: false, improvementsText: '' };
+    const td = a.closest('tr')?.querySelectorAll('td')[1] || a.closest('td');
+    const text = (td?.querySelector('table td:nth-child(2)')?.textContent || td?.textContent || '')
+      .replace(/\s+/g, ' ').trim();
+    return {
+      hasGuerrillaCamps: /Guerrilla\s+Camps/i.test(text),
+      hasLaborCamps: /Labor\s+Camps/i.test(text),
+      improvementsText: text,
+    };
+  }
+
+  function scrapeTotalPopulation() {
+    const valueTd = getValueTdForLabel((txt) => /^Total Population:/i.test(txt));
+    if (!valueTd) return null;
+    return parseFirstNumber(valueTd.textContent);
+  }
+
+  function scrapeSoldiers() {
+    const valueTd = getRowSecondCellByAnchor('#Military') ||
+      getValueTdForLabel((txt) => /Number of Soldiers:/i.test(txt));
+    if (!valueTd) return null;
+    return parseFirstNumber(valueTd.textContent);
+  }
+
+  function scrapeDefcon() {
+    const img = getRowSecondCellByAnchor('#DEFCON')?.querySelector('img[src*="DEFCON"]');
+    const m = (img?.getAttribute('src') || '').match(/DEFCON(\d)\.gif/i);
+    return m ? Number(m[1]) : null;
+  }
+
+  function scrapeThreat() {
+    const img = getRowSecondCellByAnchor('#Threat_Level')?.querySelector('img[src*="Threat"]');
+    const m = (img?.getAttribute('src') || '').match(/Threat(\d)\.gif/i);
+    if (!m) return null;
+    const code = Number(m[1]);
+    const map = { 1: 'Severe', 2: 'High', 3: 'Elevated', 4: 'Guarded', 5: 'Low' };
+    return { code, name: map[code] || String(code) };
+  }
+
+  function saveNationStats(nationId, stats) {
+    if (!nationId) return;
+    try {
+      localStorage.setItem(STORAGE_PREFIX + nationId, JSON.stringify(stats));
+      localStorage.setItem(LAST_NATION_KEY, nationId);
+    } catch {}
+  }
+
+  function loadNationStats(nationId) {
+    if (!nationId) return null;
+    try {
+      const raw = localStorage.getItem(STORAGE_PREFIX + nationId);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function createWarningTable(htmlInner) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+      <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+        <tr>
+          <td align="left" bgcolor="#000080" bordercolor="#000080">
+            <b><font color="#FFFFFF">:. Advisory</font></b>
+          </td>
+        </tr>
+        <tr>
+          <td>${htmlInner}</td>
+        </tr>
+      </table>
+    `;
+    const tbl = wrapper.firstElementChild;
+    tbl.id = 'cn_collect_panel';
+    return tbl;
+  }
+
+  function setButtonDisabled(btn, disabled) {
+    if (!btn) return;
+    btn.disabled = !!disabled;
+    const s = btn.style;
+    if (disabled) { s.opacity = '0.5'; s.filter = 'grayscale(100%)'; s.cursor = 'not-allowed'; }
+    else { s.opacity = ''; s.filter = ''; s.cursor = ''; }
+  }
+
+  function formatNumber(num) {
+    try { return Number(num).toLocaleString(); } catch { return String(num); }
+  }
+
+  function handleNationPage() {
+    const nationId = findNationIdFromPage();
+    if (!nationId) return;
+    const myNationId = findNationIdFromSidebar();
+    if (myNationId && nationId !== myNationId) return;
+
+    const imp = scrapeImprovementsFlags();
+    const totalPopulation = scrapeTotalPopulation();
+    const soldiers = scrapeSoldiers();
+    const defcon = scrapeDefcon();
+    const threat = scrapeThreat();
+
+    const soldiersTarget25 = typeof totalPopulation === 'number' ? Math.floor(totalPopulation * 0.25) : null;
+    const soldiersToSell = typeof soldiers === 'number' && typeof soldiersTarget25 === 'number' ? Math.max(0, soldiers - soldiersTarget25) : null;
+
+    saveNationStats(nationId, {
+      nationId,
+      timestamp: Date.now(),
+      ...imp,
+      totalPopulation,
+      soldiers,
+      soldiersTarget25,
+      soldiersToSell,
+      defcon,
+      threatLevelCode: threat ? threat.code : null,
+      threatLevelName: threat ? threat.name : null,
+    });
+  }
+
+  function handleCollectPage() {
+    const nationId = getNationIdFromAny();
+    const stats = loadNationStats(nationId);
+
+    const submitBtn = document.querySelector('input.Buttons[type="submit"][name="Submit"][value="Collect Taxes"]');
+    if (!submitBtn) return;
+
+    const form = submitBtn.closest('form') || document.forms[0] || document.body;
+
+    const taxTable = form ? form.closest('table') : null;
+    const moneyAfterLabelTd = taxTable
+      ? Array.from(taxTable.querySelectorAll('td')).find((td) => /Money\s*Available\s*After\s*Tax\s*Collection/i.test(((td.textContent || '').replace(/\s+/g, ' ').trim())))
+      : null;
+    const moneyAfterTr = moneyAfterLabelTd ? moneyAfterLabelTd.closest('tr') : null;
+
+    const issues = [];
+    if (!stats) {
+      issues.push('Nation details not found. Visit your "View My Nation" page first to capture current data.');
+    }
+    
+    const effectiveStats = stats || {};
+    
+    if (effectiveStats.hasLaborCamps) issues.push('Labor Camps are present.');
+    if (effectiveStats.hasGuerrillaCamps) issues.push('Guerrilla Camps are present.');
+
+    if (typeof effectiveStats.soldiers === 'number' && typeof effectiveStats.soldiersTarget25 === 'number') {
+      if (effectiveStats.soldiers > effectiveStats.soldiersTarget25) {
+        const toSell = Math.max(0, effectiveStats.soldiersToSell || 0);
+        issues.push(
+          `Soldiers exceed 25% cap. You have <b>${formatNumber(effectiveStats.soldiers)}</b> soldiers; 25% of population is <b>${formatNumber(effectiveStats.soldiersTarget25)}</b>. Suggested to sell <b>${formatNumber(toSell)}</b>.`
+        );
+      }
+    } else if (typeof effectiveStats.totalPopulation === 'number') {
+      const soldiersNow = scrapeSoldiers();
+      if (typeof soldiersNow === 'number') {
+        const cap = Math.floor(effectiveStats.totalPopulation * 0.25);
+        const toSell = Math.max(0, soldiersNow - cap);
+        if (soldiersNow > cap) {
+          issues.push(
+            `Soldiers exceed 25% cap. You have <b>${formatNumber(soldiersNow)}</b> soldiers; 25% of population is <b>${formatNumber(cap)}</b>. Suggested to sell <b>${formatNumber(toSell)}</b>.`
+          );
+        }
+        effectiveStats.soldiers = soldiersNow;
+        effectiveStats.soldiersTarget25 = cap;
+        effectiveStats.soldiersToSell = toSell;
+        if (nationId) saveNationStats(nationId, effectiveStats);
+      }
+    }
+
+    if (typeof effectiveStats.defcon === 'number' && effectiveStats.defcon !== 5) {
+      issues.push(`DEFCON is <b>${effectiveStats.defcon}</b>. Recommended: <b>5</b>.`);
+    }
+
+    if (typeof effectiveStats.threatLevelCode === 'number' && effectiveStats.threatLevelCode !== 5) {
+      const name = effectiveStats.threatLevelName || String(effectiveStats.threatLevelCode);
+      issues.push(`Threat Level is <b>${name}</b>. Recommended: <b>Low</b>.`);
+    }
+
+    if (issues.length === 0) return;
+
+    const overrideId = 'cn_collect_override';
+    const panelHtml = `
+      <div style="padding:4px;">
+        <img src="images/ico_arr_gray.gif" width="11" height="11"> <b>Recommendations</b>
+        <ul style="margin-top:6px;">${issues.map((i) => `<li>${i}</li>`).join('')}</ul>
+        <div style="margin-top:8px;">
+          <label><input type="checkbox" id="${overrideId}"> I understand and want to collect taxes anyway (e.g., at war).</label>
+        </div>
+      </div>
+    `;
+    const existing = document.getElementById('cn_collect_panel');
+    if (existing) {
+      const tr = existing.closest('tr');
+      if (tr && tr.parentNode) tr.parentNode.removeChild(tr); else existing.remove();
+    }
+    const panel = createWarningTable(panelHtml);
+
+    if (moneyAfterTr && moneyAfterTr.parentNode) {
+      const advisoryTr = document.createElement('tr');
+      const td = document.createElement('td');
+      const columns = moneyAfterTr.querySelectorAll('td').length || moneyAfterTr.children.length || 2;
+      td.colSpan = columns;
+      td.appendChild(panel);
+      advisoryTr.appendChild(td);
+      const tbody = moneyAfterTr.parentNode;
+      tbody.insertBefore(advisoryTr, moneyAfterTr.nextSibling);
+    } else if (taxTable && taxTable.tBodies && taxTable.tBodies[0]) {
+      const tbody = taxTable.tBodies[0];
+      const advisoryTr = document.createElement('tr');
+      const td = document.createElement('td');
+      const columns = (tbody.rows[0] ? tbody.rows[0].cells.length : 2);
+      td.colSpan = columns;
+      td.appendChild(panel);
+      advisoryTr.appendChild(td);
+      tbody.appendChild(advisoryTr);
+    } else {
+      form.parentNode.insertBefore(panel, form);
+    }
+
+    setButtonDisabled(submitBtn, true);
+    const override = document.getElementById(overrideId);
+    if (override) {
+      override.addEventListener('change', () => {
+        setButtonDisabled(submitBtn, !override.checked);
+      });
+    }
+  }
+
+  function main() {
+    const path = location.pathname.toLowerCase();
+    if (path.includes('nation_drill_display.asp')) {
+      handleNationPage();
+    }
+    if (path.includes('collect_taxes.asp')) {
+      handleCollectPage();
+    }
+    const sidebarNationId = findNationIdFromSidebar();
+    if (sidebarNationId) try { localStorage.setItem(LAST_NATION_KEY, sidebarNationId); } catch {}
+  }
+
+  try { main(); } catch (e) { /* swallow */ }
+})();
+
+
