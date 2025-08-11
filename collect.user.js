@@ -1,12 +1,7 @@
 // ==UserScript==
 // @name         CN Collect Advisor
 // @namespace    https://cn-collect.local
-<<<<<<< Updated upstream
-// @author       Ari / Mochi
-// @version      1.0
-=======
 // @version      1.3
->>>>>>> Stashed changes
 // @description  Warns you on a bad collect.
 // @match        https://www.cybernations.net/*
 // @run-at       document-idle
