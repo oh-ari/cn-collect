@@ -1,6 +1,5 @@
 // ==UserScript==
 // @name         CN Collect Advisor
-// @namespace    https://cn-collect.local
 // @author       Ari / Mochi
 // @version      1.3
 // @description  Warns you on a bad collect.
