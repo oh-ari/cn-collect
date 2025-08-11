@@ -1,8 +1,12 @@
 // ==UserScript==
 // @name         CN Collect Advisor
 // @namespace    https://cn-collect.local
+<<<<<<< Updated upstream
 // @author       Ari / Mochi
 // @version      1.0
+=======
+// @version      1.3
+>>>>>>> Stashed changes
 // @description  Warns you on a bad collect.
 // @match        https://www.cybernations.net/*
 // @run-at       document-idle
@@ -126,6 +130,71 @@
     return { tradeSlotsUsed, tradeSlotsTotal };
   }
 
+  function getTechnology() {
+    const valueTd = getRowSecondCellByAnchor('#Technology');
+    if (!valueTd) return null;
+    return parseFirstNumber(valueTd.textContent);
+  }
+
+  function getGovernmentInfo() {
+    const td = getRowSecondCellByAnchor('#Government_Type');
+    if (!td) return { governmentName: null, governmentDiscontent: null };
+    const imgTitle = td.querySelector('img[title]')?.getAttribute('title') || '';
+    const text = (td.textContent || '').replace(/\s+/g, ' ').trim();
+    const m = !imgTitle ? text.match(/^([^\-]+)\s*-/) : null;
+    const name = imgTitle || (m ? m[1].trim() : null);
+    const discontent = /prefer\s+something\s+else/i.test(text) ? true : false;
+    let preference = null;
+    if (discontent) {
+      const prefs = [
+        [/ruled\s+by\s+a\s+royal\s+family/i, 'Monarchy'],
+        [/invest\s+heavily\s+in\s+business\s+ventures/i, 'Capitalist'],
+        [/common\s+ownership\s+of\s+all\s+national\s+possessions/i, 'Communist'],
+        [/fair\s+elective\s+processes/i, 'Democracy'],
+        [/supreme\s+ruler\s+who\s+is\s+in\s+charge/i, 'Dictatorship'],
+        [/strong\s+central\s+powers/i, 'Federal Government'],
+        [/ruled\s+by\s+the\s+people\s+themselves/i, 'Republic'],
+        [/radical\s+change/i, 'Revolutionary Government'],
+        [/exercises\s+total\s+control/i, 'Totalitarian State'],
+        [/prefer\s+something\s+more\s+temporary/i, 'Transitional'],
+      ];
+      for (const [re, val] of prefs) { if (re.test(text)) { preference = val; break; } }
+    }
+    return { governmentName: name, governmentDiscontent: discontent, governmentPreferenceName: preference };
+  }
+
+  function getReligionInfo() {
+    const td = getRowSecondCellByAnchor('#National_Religion');
+    if (!td) return { religionName: null, religionDiscontent: null };
+    const imgTitle = td.querySelector('img[title]')?.getAttribute('title') || '';
+    const text = (td.textContent || '').replace(/\s+/g, ' ').trim();
+    const m = !imgTitle ? text.match(/^([^\-]+)\s*-/) : null;
+    const name = imgTitle || (m ? m[1].trim() : null);
+    const discontent = /prefer\s+something\s+else/i.test(text) ? true : false;
+    let preference = null;
+    if (discontent) {
+      const prefs = [
+        [/do\s+not\s+desire\s+a\s+religion/i, 'None'],
+        [/(no\s+dominant\s+religion|variety\s+of\s+various\s+teachings)/i, 'Mixed'],
+        [/modern\s+middle\s+eastern.*monotheism/i, "Baha'i faith"],
+        [/(do\s+not\s+care\s+to\s+worship\s+a\s+supreme\s+deity|Four\s+Noble\s+Truths|Eightfold\s+Path)/i, 'Buddhism'],
+        [/(divine\s+savior|Old\s+Testament.*New\s+Testament)/i, 'Christianity'],
+        [/Far\s+Eastern.*love\s+for\s+humanity/i, 'Confucianism'],
+        [/reincarnation\s+and\s+karma/i, 'Hinduism'],
+        [/Allah.*Quran/i, 'Islam'],
+        [/(non-materialistic.*atheism.*jiva|Jiva)/i, 'Jainism'],
+        [/(divine\s+scriptures(?!.*Quran)|Torah.*Talmud)/i, 'Judaism'],
+        [/ancient\s+religion.*Germanic.*Nordic/i, 'Norse'],
+        [/god\s+is\s+present\s+in\s+all\s+walks\s+of\s+life.*living\s+and\s+non-living/i, 'Shinto'],
+        [/blends\s+Hindu.*Islamic\s+monotheistic.*Ten\s+Gurus/i, 'Sikhism'],
+        [/(do\s+not\s+believe\s+in\s+a\s+single\s+god).*oneness.*freedom\s+from\s+personal\s+desires/i, 'Taoism'],
+        [/conjuring\s+of\s+dead\s+spirits/i, 'Voodoo'],
+      ];
+      for (const [re, val] of prefs) { if (re.test(text)) { preference = val; break; } }
+    }
+    return { religionName: name, religionDiscontent: discontent, religionPreferenceName: preference };
+  }
+
   function saveNationStats(nationId, stats) {
     if (!nationId) return;
     try {
@@ -188,6 +257,9 @@
     const threat = getThreat();
     const crime = getCrimeIndexAndCps();
     const trade = getTradeSlots();
+    const technology = getTechnology();
+    const gov = getGovernmentInfo();
+    const rel = getReligionInfo();
 
     const soldiersTarget25 = typeof totalPopulation === 'number' ? Math.floor(totalPopulation * 0.25) : null;
     const soldiersToSell = typeof soldiers === 'number' && typeof soldiersTarget25 === 'number' ? Math.max(0, soldiers - soldiersTarget25) : null;
@@ -207,6 +279,13 @@
       crimePreventionScore: crime ? crime.crimePreventionScore : null,
       tradeSlotsUsed: trade ? trade.tradeSlotsUsed : null,
       tradeSlotsTotal: trade ? trade.tradeSlotsTotal : null,
+      technology,
+      governmentName: gov ? gov.governmentName : null,
+      governmentDiscontent: gov ? gov.governmentDiscontent : null,
+      governmentPreferenceName: gov ? gov.governmentPreferenceName : null,
+      religionName: rel ? rel.religionName : null,
+      religionDiscontent: rel ? rel.religionDiscontent : null,
+      religionPreferenceName: rel ? rel.religionPreferenceName : null,
     });
   }
 
@@ -281,6 +360,19 @@
       }
     }
 
+    if (typeof effectiveStats.technology === 'number' && effectiveStats.technology < 110) {
+      notes.push(`Your tech is ${formatNumber(effectiveStats.technology)}. Consider buying to 110 for additional bonuses.`);
+    }
+
+    if (effectiveStats.governmentDiscontent === true) {
+      if (effectiveStats.governmentPreferenceName) notes.push(`Government preference: ${effectiveStats.governmentPreferenceName}`);
+      else notes.push(`Your people would prefer a different government than ${effectiveStats.governmentName || 'current'}.`);
+    }
+    if (effectiveStats.religionDiscontent === true) {
+      if (effectiveStats.religionPreferenceName) notes.push(`Religion preference: ${effectiveStats.religionPreferenceName}`);
+      else notes.push(`Your people would prefer a different national religion than ${effectiveStats.religionName || 'current'}.`);
+    }
+
     if (issues.length === 0 && notes.length === 0) return;
 
     const overrideId = 'cn_collect_override';
@@ -329,6 +421,15 @@
         override.addEventListener('change', () => {
           setButtonDisabled(submitBtn, !override.checked);
         });
+        if (effectiveStats.hasLaborCamps === false || effectiveStats.hasGuerrillaCamps === false) {
+          const box = override.closest('div') || override.parentElement;
+          if (box && box.parentNode) {
+            const r = document.createElement('div');
+            r.style.marginTop = '6px';
+            r.textContent = "Don't forget to rebuy your Labor Camps and Guerrilla Camps after collecting.";
+            box.insertAdjacentElement('afterend', r);
+          }
+        }
       }
     }
   }
