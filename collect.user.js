@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CN Advisor
 // @author       Ari / Mochi
-// @version      1.4
+// @version      1.5b
 // @description  Warns you on a bad collect & some other neat things.
 // @match        https://www.cybernations.net/*
 // @run-at       document-idle
@@ -636,8 +636,71 @@ function createPanel(htmlInner) {
     tbody.appendChild(advisoryTr);
   }
 
+  function handleImprovementsPage() {
+    const nationId = getNationIdFromAny();
+    if (nationId) {
+      const stats = loadNationStats(nationId);
+      if (stats) {
+        const imp = getImprovementsFromTable();
+        Object.assign(stats, imp);
+        saveNationStats(nationId, stats);
+      }
+    }
+
+    document.querySelectorAll('form[action*="improvements_purchase_destroy.asp"]').forEach(form => {
+      form.addEventListener('submit', e => {
+        const improvement = decodeURIComponent(form.action.match(/Improvement=([^&]+)/)?.[1] || '');
+        if (improvement === 'Labor Camp' || improvement === 'Guerilla Camp') {
+          const stats = loadNationStats(getNationIdFromAny());
+          if (stats) {
+            stats[improvement === 'Labor Camp' ? 'hasLaborCamps' : 'hasGuerrillaCamps'] = false;
+            saveNationStats(getNationIdFromAny(), stats);
+          }
+        }
+      });
+    });
+
+    document.querySelectorAll('input[name="improvement"]').forEach(radio => {
+      radio.addEventListener('click', function() {
+        if (this.value === 'Labor Camp' || this.value === 'Guerilla Camp') {
+          const stats = loadNationStats(getNationIdFromAny());
+          if (stats) {
+            stats[this.value === 'Labor Camp' ? 'hasLaborCamps' : 'hasGuerrillaCamps'] = true;
+            saveNationStats(getNationIdFromAny(), stats);
+          }
+        }
+      });
+    });
+  }
+
+  function getImprovementsFromTable() {
+    const improvements = { hasLaborCamps: false, hasGuerrillaCamps: false, hasFactories: false, factoriesCount: 0 };
+    
+    document.querySelectorAll('tr').forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 4) {
+        const checks = [
+          [cells[0].textContent.trim(), cells[1].textContent.trim()],
+          [cells[2].textContent.trim(), cells[3].textContent.trim()]
+        ];
+        
+        checks.forEach(([name, count]) => {
+          if (name === 'Labor Camps') improvements.hasLaborCamps = parseInt(count) > 0;
+          else if (name === 'Guerrilla Camps') improvements.hasGuerrillaCamps = parseInt(count) > 0;
+          else if (name === 'Factories') {
+            improvements.hasFactories = parseInt(count) > 0;
+            improvements.factoriesCount = parseInt(count) || 0;
+          }
+        });
+      }
+    });
+    
+    return improvements;
+  }
+
   function main() {
     const path = location.pathname.toLowerCase();
+    try { injectCalcLink(); } catch {}
     if (path.includes('nation_drill_display.asp')) {
       handleNationPage();
     }
@@ -647,11 +710,1208 @@ function createPanel(htmlInner) {
     if (path.includes('infrastructurebuysell.asp')) {
       handleInfrastructurePage();
     }
+    if (path.includes('improvements_purchase.asp')) {
+      handleImprovementsPage();
+    }
     const sidebarNationId = findNationIdFromSidebar();
     if (sidebarNationId) try { localStorage.setItem(LAST_NATION_KEY, sidebarNationId); } catch {}
   }
 
+  function injectCalcLink(){
+    if(document.getElementById('cn_calc_link'))return;
+    const a=document.querySelector('a[href*="trade_information.asp"]');
+    if(!a)return;
+    const tr=a.closest('tr');
+    if(!tr||!tr.parentNode)return;
+    const nr=document.createElement('tr');
+    nr.innerHTML='\n<td height="19" width="18" align="right" valign="top"><img src="images/ico_arr_gray.gif" width="11" height="11"></td>\n<td height="19" align="left"><a href="#" id="cn_calc_link">Resource Calculator</a></td>\n<td height="19" align="left">&nbsp;</td>\n';
+    tr.parentNode.insertBefore(nr,tr.nextSibling);
+    document.getElementById('cn_calc_link').addEventListener('click',function(e){e.preventDefault();openCalcPage();});
+  }
+
+function openCalcPage(){
+    const existingContent = document.body.innerHTML;
+
+    document.body.innerHTML = `
+        <div style="background: #FFFFFF; min-height: 100vh;">
+            <div align="center">
+                <table cellspacing="0" cellpadding="4" border="0" id="table1" width="900">
+                    <tbody><tr>
+                    <td valign="top" align="middle">
+                    <table border="0" width="100%" id="table25" cellspacing="0" bordercolor="#000080" cellpadding="0">
+                    <tbody><tr>
+                    <td width="3%" valign="top">&nbsp;</td>
+                    <td width="69%">
+                    <a href="default.asp" name="pagetop">
+                    <img border="0" src="images/cn_logo.png" alt="Home"></a></td>
+                    <td align="right">
+                    <table border="0" width="100%" id="table51" cellspacing="0" cellpadding="3">
+                    <tbody><tr>
+
+                    <td align="right">
+                    <br>
+                    </td>
+                    </tr>
+                    <tr>
+                    <td align="right">
+                    &nbsp;
+                    </td>
+
+
+
+                    </tr>
+                    </tbody></table>
+
+                    <br>
+                    Server Time: ${new Date().toLocaleString('en-US', {timeZone: 'America/Chicago', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true})}</td>
+                    </tr>
+                    </tbody></table>
+                    </td>
+                    </tr>
+                    </tbody></table>
+                </div>
+            <div style="display: flex; max-width: 900px; margin: 0 auto;">
+                <div style="width: 159px; flex-shrink: 0;">
+                    <table border="2" cellpadding="0" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="155">
+                        <tr><td bgcolor="#000080" height="18"><p align="left"><font color="#FFFFFF"><b>&nbsp;:. User Menu</b></font></p></td></tr>
+                        <tr><td align="center" width="150">
+                            <table border="0" cellpadding="2" style="border-collapse: collapse" width="100%">
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="default.asp">Home</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="about.asp">About The Game</a></td><td height="19" align="left"><img border="0" src="images/arrow.gif" width="7" height="9"></td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="inbox.asp">My Messages</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="myprofile.asp">My Profile</a></td><td height="19" align="left"><img border="0" src="images/arrow.gif" width="7" height="9"></td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="logout">Logout</a></td><td height="19" align="left">&nbsp;</td></tr>
+                            </table>
+                        </td></tr>
+                        <tr><td bgcolor="#000080" height="18"><p align="left"><font color="#FFFFFF"><b>&nbsp;:. Main Menu</b></font></p></td></tr>
+                        <tr><td align="center" width="150">
+                            <table border="0" cellpadding="2" style="border-collapse: collapse" width="100%">
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="https://www.cybernations.net/nation_drill_display.asp?Nation_ID=${localStorage.getItem('cn:lastNationId') || ''}">View My Nation</a></td><td height="19" align="left"><img border="0" src="images/arrow.gif" width="7" height="9"></td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="offer_donation_nation.asp">Donation Bonuses</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="government_position.asp">Government Position</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="teams.asp">Team Information</a></td><td height="19" align="left"><img border="0" src="images/arrow.gif" width="7" height="9"></td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="event_information.asp">Events</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="trade_information.asp">Trade Agreements</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="#">Resource Calculator</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="aid_information.asp">Foreign Aid</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="nation_edit.asp">Edit My Nation</a></td><td height="19" align="left">&nbsp;</td></tr>
+                            </table>
+                        </td></tr>
+                        <tr><td bgcolor="#000080" height="18"><p align="left"><font color="#FFFFFF"><b>&nbsp;:. Nation Purchases</b></font></p></td></tr>
+                        <tr><td align="center" width="150">
+                            <table border="0" cellpadding="2" style="border-collapse: collapse" width="100%">
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="collect_taxes.asp">Collect Taxes</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="pay_bills.asp">Pay Bills</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="infrastructurebuysell.asp">Infrastructure</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="improvements_purchase.asp">Improvements</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="landbuysell.asp">Land</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="technology_purchase.asp">Technology</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="national_wonders_purchase.asp">Wonders</a></td><td height="19" align="left">&nbsp;</td></tr>
+                            </table>
+                        </td></tr>
+                        <tr><td bgcolor="#000080" height="18"><p align="left"><font color="#FFFFFF"><b>&nbsp;:. Military Menu</b></font></p></td></tr>
+                        <tr><td align="center" width="150">
+                            <table border="0" cellpadding="2" style="border-collapse: collapse" width="100%">
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="allNations_display_myranking.asp">Nation Rankings</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="military_purchase.asp">Purchase Military</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="militarydeploy.asp">Deploy Military</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="nation_war_information.asp">War & Battles</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="spies_information.asp">Spy Operations</a></td><td height="19" align="left">&nbsp;</td></tr>
+                            </table>
+                        </td></tr>
+                        <tr><td bgcolor="#000080" height="18"><p align="left"><font color="#FFFFFF"><b>&nbsp;:. Alliance Menu</b></font></p></td></tr>
+                        <tr><td align="center" width="150">
+                            <table border="0" cellpadding="2" style="border-collapse: collapse" width="100%">
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="alliance_display.asp">View My Alliance</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="alliance_stats.asp">My Alliance Stats</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="alliance_announcement.asp">Announcements</a></td><td height="19" align="left">&nbsp;</td></tr>
+                            </table>
+                        </td></tr>
+                        <tr><td bgcolor="#000080" height="18"><p align="left"><font color="#FFFFFF"><b>&nbsp;:. World Menu</b></font></p></td></tr>
+                        <tr><td align="center" width="150">
+                            <table border="0" cellpadding="2" style="border-collapse: collapse" width="100%">
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="allNations_display.asp">Display All Nations</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="alliance_all.asp">Display All Alliances</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="all_aid_information.asp">Foreign Aid Offers</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="all_war_information.asp">Wars Across the Globe</a></td><td height="19" align="left">&nbsp;</td></tr>
+                                <tr><td height="19" width="18" align="right" valign="top"><img border="0" src="images/ico_arr_gray.gif" width="11" height="11"></td><td height="19" align="left"><a href="stats.asp">World Statistics</a></td><td height="19" align="left">&nbsp;</td></tr>
+                            </table>
+                        </td></tr>
+                    </table>
+                </div>
+                <div style="width: 2%; flex-shrink: 0;"></div>
+                <div style="flex: 1; padding: 0 20px;">
+                    <div id="resourceCalculator"></div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const style = document.createElement('style');
+    style.textContent = `
+        body { font-family: Verdana, Arial, Helvetica, sans-serif; }
+        .game-button { padding: 8px 16px; background: #000080; color: white; border: none; cursor: pointer; font-family: Verdana, Arial, Helvetica, sans-serif; }
+        .game-select { padding: 6px 12px; border: 1px solid #000080; font-family: Verdana, Arial, Helvetica, sans-serif; }
+        .resource-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; padding: 10px; background: #FFFFFF; min-height: 60px; }
+        .resource-item { width: 50px; height: 50px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; position: relative; }
+        .resource-item:hover { border-color: #000080; transform: scale(1.05); }
+        .resource-item.active { border-color: #000080; }
+        .resource-item.dragging { opacity: 0.5; transform: scale(1.1); }
+        .bonus-item { border-color: #ff6b6b; }
+        .bonus-item.active { }
+        .mine-checkbox { display: flex; align-items: center; gap: 5px; font-family: Verdana, Arial, Helvetica, sans-serif; }
+        .special-resources { display: none; }
+        .bonus-bars { display: flex; flex-direction: column; gap: 8px; }
+        .bonus-bar { display: flex; justify-content: space-between; padding: 8px; background: #FFFFFF; border: 1px solid #000080; }
+        .bonus-value.positive { color: #28a745; }
+        .bonus-value.negative { color: #dc3545; }
+        .warning-message { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 10px; margin-top: 10px; }
+        .drag-over { border-color: #000080; background-color: #f0f8ff; }
+        #activeResourceGrid, #activeBonusResourceGrid { background-color: #f8f9fa; }
+        .resource-tooltip { position: absolute; background: #000080; color: white; padding: 5px 8px; border-radius: 3px; font-size: 12px; font-family: Verdana, Arial, Helvetica, sans-serif; white-space: nowrap; z-index: 1000; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        .game-input { padding: 5px; border: 1px solid #000080; border-radius: 3px; font-family: Verdana, Arial, Helvetica, sans-serif; width: 100%; box-sizing: border-box; }
+        .game-button { height: 30px; padding: 0 12px; margin-right: 8px; }
+        .game-select { height: 30px; margin-right: 8px; }
+        .game-input { width: 150px; }
+    `;
+    document.head.appendChild(style);
+
+    setTimeout(() => {
+        const calcScript = `
+            const GITHUB_RAW_URL = 'https://raw.githubusercontent.com/oh-ari/cn-collect/main';
+            const RESOURCE_LIMIT = 12;
+
+            function createResourceImg(basePath, name, className) {
+                const img = document.createElement('img');
+                img.src = \`\${GITHUB_RAW_URL}\${basePath}/\${name}.png\`;
+                img.className = className;
+                img.setAttribute('data-resource', String(name).toLowerCase());
+                img.draggable = true;
+
+                if (basePath.includes('moonmars')) {
+                    img.classList.add('special-resource');
+                }
+
+                img.onerror = () => {
+                    console.error(\`Failed to load image: \${basePath}/\${name}.png\`);
+                    img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+                };
+
+                const tooltip = document.createElement('div');
+                tooltip.className = 'resource-tooltip';
+                tooltip.textContent = name.charAt(0).toUpperCase() + name.slice(1).replace(/([A-Z])/g, ' $1');
+                tooltip.style.display = 'none';
+                img.appendChild(tooltip);
+
+                img.addEventListener('mouseenter', () => {
+                    tooltip.style.display = 'block';
+                });
+
+                img.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+
+                return img;
+            }
+
+            function initializeResourceCalculator() {
+                const calculator = document.getElementById('resourceCalculator');
+                if (!calculator) return;
+
+                const style = document.createElement('style');
+                style.textContent = \`
+                    .warning-message {
+                        background-color: #ffebee;
+                        color: #c62828;
+                        padding: 10px;
+                        margin: 10px 0;
+                        border: 1px solid #ef5350;
+                        border-radius: 4px;
+                        text-align: center;
+                        font-weight: bold;
+                    }
+                    .resource-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+                        gap: 5px;
+                        padding: 10px;
+                    }
+                    .resource-item {
+                        width: 40px;
+                        height: 40px;
+                        cursor: pointer;
+                        border: 2px solid transparent;
+                        transition: border-color 0.2s;
+                    }
+                    .resource-item:hover {
+                        border-color: #000080;
+                    }
+                    .resource-item.active {
+                        border-color: #00ff00;
+                    }
+                    .resource-item.dragging {
+                        opacity: 0.5;
+                    }
+                    .drag-over {
+                        background-color: #e3f2fd;
+                    }
+                    .bonus-item {
+                        border-color: #ff9800;
+                    }
+                    .special-resource {
+                        border-color: #9c27b0;
+                    }
+                    .resource-tooltip {
+                        position: absolute;
+                        background: #333;
+                        color: white;
+                        padding: 5px;
+                        border-radius: 3px;
+                        font-size: 12px;
+                        white-space: nowrap;
+                        z-index: 1000;
+                        pointer-events: none;
+                        top: -30px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                    }
+                    .resource-item {
+                        position: relative;
+    }
+                \`;
+                document.head.appendChild(style);
+
+                calculator.innerHTML = \`
+                    <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                        <tr>
+                            <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                <b><font color="#FFFFFF">:. Calculator Controls</font></b>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <table border="0" width="100%" cellspacing="0" cellpadding="5">
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                <div>
+                                                    <button class="game-button" id="resetResources">Reset</button>
+                                                    <button class="game-button" id="importCurrent">Import</button>
+                                                    <select class="game-select" id="presetSelect">
+                                                        <option value="none">Select Preset</option>
+                                                        <option value="3br-a">3BR-A</option>
+                                                        <option value="3br-b">3BR-B</option>
+                                                        <option value="4br-a">4BR-A</option>
+                                                        <option value="5br-a">5BR-A</option>
+                                                        <option value="7br-a">7BR-A</option>
+                                                        <option value="8br-a">8BR-A</option>
+                                                    </select>
+                                                </div>
+                                                <div style="border-left: 2px solid #000080; height: 30px; margin: 0 16px;"></div>
+                                                <div>
+                                                    <input type="text" class="game-input" id="customPresetName" placeholder="Preset Name">
+                                                    <button class="game-button" id="savePreset">Save</button>
+                                                    <button class="game-button" id="deletePreset">Delete</button>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <br>
+
+                    <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                        <tr>
+                            <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                <b><font color="#FFFFFF">:. Active Resources <span id="resourceCounter">0/12</span></font></b>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="resource-grid" id="activeResourceGrid"></div>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <br>
+
+                    <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                        <tr>
+                            <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                <b><font color="#FFFFFF">:. Active Bonus Resources</font></b>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="resource-grid" id="activeBonusResourceGrid"></div>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <br>
+
+                    <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                        <tr>
+                            <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                <b><font color="#FFFFFF">:. Available Resources</font></b>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="resource-grid" id="resourceGrid"></div>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <br>
+
+                    <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                        <tr>
+                            <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                <b><font color="#FFFFFF">:. Available Bonus Resources</font></b>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="resource-grid" id="bonusResourceGrid"></div>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <br>
+
+                    <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                        <tr>
+                            <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                <b><font color="#FFFFFF">:. Mine Controls</font></b>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <table border="0" width="100%" cellspacing="0" cellpadding="5">
+                                    <tr>
+                                        <td width="50%">
+                                            <label class="mine-checkbox">
+                                                <input type="checkbox" id="moonMine"> Moon Mine
+                                            </label>
+                                        </td>
+                                        <td width="50%">
+                                            <label class="mine-checkbox">
+                                                <input type="checkbox" id="marsMine"> Mars Mine
+                                            </label>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <div class="special-resources" id="moonResources">
+                        <br>
+                        <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                            <tr>
+                                <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                    <b><font color="#FFFFFF">:. Moon Resources</font></b>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="resource-grid"></div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <div class="special-resources" id="marsResources">
+                        <br>
+                        <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                            <tr>
+                                <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                    <b><font color="#FFFFFF">:. Mars Resources</font></b>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="resource-grid"></div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <br>
+
+                    <table border="0" width="100%" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td width="48%" valign="top">
+                                <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                                    <tr>
+                                        <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                            <b><font color="#FFFFFF">:. Economic Bonuses</font></b>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="economic-bonuses bonus-bars"></div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                            <td width="4%">&nbsp;</td>
+                            <td width="48%" valign="top">
+                                <table border="2" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#000080" bgcolor="#FFFFFF" width="100%">
+                                    <tr>
+                                        <td align="left" bgcolor="#000080" bordercolor="#000080">
+                                            <b><font color="#FFFFFF">:. Military Bonuses</font></b>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="military-bonuses bonus-bars"></div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                \`;
+
+                loadResources();
+                setupEventListeners();
+            }
+
+            function loadResources() {
+                const resourceGrid = document.getElementById('resourceGrid');
+                const resources = [
+                    'aluminum', 'cattle', 'coal', 'fish', 'furs', 'gems', 'gold', 'iron',
+                    'lead', 'lumber', 'marble', 'oil', 'pigs', 'rubber', 'silver', 'spices',
+                    'sugar', 'uranium', 'water', 'wheat', 'wine'
+                ];
+                resources.forEach((name) => resourceGrid.appendChild(createResourceImg('/trade', name, 'resource-item')));
+
+                const bonusGrid = document.getElementById('bonusResourceGrid');
+                const bonuses = [
+                    'affluent', 'asphalt', 'automobile', 'beer', 'construction',
+                    'fastfood', 'jewelry', 'microchip', 'radiation', 'scholar', 'steel'
+                ];
+                bonuses.forEach((name) => bonusGrid.appendChild(createResourceImg('/trade/bonus', name, 'resource-item bonus-item')));
+
+                loadSpecialResources();
+            }
+
+            function loadSpecialResources() {
+                const appendTo = (containerId, list) => {
+                    const grid = document.querySelector(\`#\${containerId} .resource-grid\`);
+                    list.forEach((name) => grid.appendChild(createResourceImg('/trade/moonmars', name, 'resource-item')));
+                };
+                appendTo('moonResources', ['Calcium', 'Radon', 'Silicon', 'Titanium']);
+                appendTo('marsResources', ['Basalt', 'Magnesium', 'Potassium', 'Sodium']);
+            }
+
+            function setupEventListeners() {
+                setupDragAndDrop();
+                setupMineHandlers();
+                document.getElementById('resetResources').addEventListener('click', resetResources);
+                document.getElementById('importCurrent').addEventListener('click', importCurrentResources);
+                document.getElementById('presetSelect').addEventListener('change', handlePresetSelection);
+                document.getElementById('savePreset').addEventListener('click', saveCurrentAsPreset);
+                document.getElementById('deletePreset').addEventListener('click', deleteSelectedPreset);
+                setupSpecialResourceListeners();
+                loadCustomPresets();
+            }
+
+            function setupDragAndDrop() {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                if (isMobile) {
+                    setupMobileHandlers();
+                } else {
+                    setupDesktopDragAndDrop();
+                }
+            }
+
+            function setupMobileHandlers() {
+                document.querySelectorAll('.resource-item:not(.bonus-item)').forEach(item => {
+                    item.addEventListener('click', () => {
+                        if (item.parentElement.id === 'resourceGrid') {
+                            if (isResourceLimitReached()) {
+                                showWarning('You can only have 12 resources active.');
+                                return;
+                            }
+                            document.getElementById('activeResourceGrid').appendChild(item);
+                            item.classList.add('active');
+                            checkAndAddBonusResources();
+                            updateBonuses();
+                        } else if (item.parentElement.id === 'activeResourceGrid') {
+                            document.getElementById('resourceGrid').appendChild(item);
+                            item.classList.remove('active');
+                            updateBonuses();
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.bonus-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        if (item.parentElement.id === 'bonusResourceGrid') {
+                            const bonusId = item.getAttribute('data-resource');
+                            handleBonusRequirements(bonusId);
+                        } else if (item.parentElement.id === 'activeBonusResourceGrid') {
+                            document.getElementById('bonusResourceGrid').appendChild(item);
+                            item.classList.remove('active');
+                            updateBonuses();
+                        }
+                    });
+                });
+
+
+            }
+
+            function setupDesktopDragAndDrop() {
+                document.querySelectorAll('.resource-item').forEach(item => {
+                    item.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        item.classList.add('dragging');
+                    });
+
+                    item.addEventListener('dragend', (e) => {
+                        item.classList.remove('dragging');
+                    });
+
+                    item.addEventListener('click', () => handleResourceClick(item));
+                });
+
+                setupDropZone('activeResourceGrid', handleResourceDrop);
+                setupDropZone('activeBonusResourceGrid', handleBonusDrop);
+                setupDropZone('moonResources', handleSpecialResourceDrop);
+                setupDropZone('marsResources', handleSpecialResourceDrop);
+            }
+
+            function setupDropZone(id, dropHandler) {
+                const dropZone = document.getElementById(id);
+                if (!dropZone) return;
+
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    dropZone.classList.add('drag-over');
+                });
+
+                dropZone.addEventListener('dragleave', (e) => {
+                    if (!dropZone.contains(e.relatedTarget)) {
+                        dropZone.classList.remove('drag-over');
+                    }
+                });
+
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('drag-over');
+                    dropHandler(e, dropZone);
+                });
+            }
+
+            function handleBonusDrop(e, dropZone) {
+                const draggingItem = document.querySelector('.dragging');
+                if (!draggingItem) return;
+
+                if (draggingItem.classList.contains('bonus-item')) {
+                    const bonusId = draggingItem.getAttribute('data-resource');
+                    handleBonusRequirements(bonusId);
+                } else if (isSpecialResource(draggingItem)) {
+                    handleSpecialResourceDrop(e, dropZone);
+                }
+            }
+
+            function handleResourceDrop(e, dropZone) {
+                const draggingItem = document.querySelector('.dragging');
+                if (!draggingItem || draggingItem.classList.contains('bonus-item')) return;
+
+                if (isResourceLimitReached()) {
+                    showWarning('You can only have 12 resources active.');
+                    return;
+                }
+
+                if (draggingItem.parentElement.id === 'resourceGrid') {
+                    dropZone.appendChild(draggingItem);
+                    draggingItem.classList.add('active');
+                    checkAndAddBonusResources();
+                    updateBonuses();
+                }
+            }
+
+            function handleSpecialResourceDrop(e, dropZone) {
+                const draggingItem = document.querySelector('.dragging');
+                if (!draggingItem || !isSpecialResource(draggingItem)) return;
+
+                const activeBonusGrid = document.getElementById('activeBonusResourceGrid');
+                const existingSpecial = activeBonusGrid.querySelector('[data-resource*="calcium"], [data-resource*="radon"], [data-resource*="silicon"], [data-resource*="titanium"], [data-resource*="basalt"], [data-resource*="magnesium"], [data-resource*="potassium"], [data-resource*="sodium"]');
+
+                if (existingSpecial) {
+                    const sourceGrid = existingSpecial.getAttribute('data-resource').toLowerCase().includes('calcium') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('radon') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('silicon') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('titanium') ? 'moonResources' : 'marsResources';
+                    document.querySelector('#' + sourceGrid + ' .resource-grid').appendChild(existingSpecial);
+                    existingSpecial.classList.remove('active');
+                }
+
+                activeBonusGrid.appendChild(draggingItem);
+                draggingItem.classList.add('active');
+                if (!draggingItem.hasAttribute('data-click-bound')) {
+                    draggingItem.addEventListener('click', () => handleResourceClick(draggingItem));
+                    draggingItem.setAttribute('data-click-bound', 'true');
+                }
+                updateBonuses();
+            }
+
+            function handleResourceClick(item) {
+                if (item.classList.contains('bonus-item')) {
+                    const bonusId = item.getAttribute('data-resource');
+                    handleBonusRequirements(bonusId);
+                } else if (isSpecialResource(item) || isSpecialResourceFromGrid(item)) {
+                    handleSpecialResourceClick(item);
+                } else {
+                    if (item.parentElement.id === 'resourceGrid') {
+                        if (isResourceLimitReached()) {
+                            showWarning('You can only have 12 resources active.');
+                            return;
+                        }
+                        document.getElementById('activeResourceGrid').appendChild(item);
+                        item.classList.add('active');
+                        checkAndAddBonusResources();
+                        updateBonuses();
+                    } else if (item.parentElement.id === 'activeResourceGrid') {
+                        document.getElementById('resourceGrid').appendChild(item);
+                        item.classList.remove('active');
+                        updateBonuses();
+                    }
+                }
+            }
+
+            function isSpecialResource(item) {
+                const resourceName = item.getAttribute('data-resource');
+                return item.classList.contains('special-resource') || ['calcium', 'radon', 'silicon', 'titanium', 'basalt', 'magnesium', 'potassium', 'sodium'].includes(resourceName.toLowerCase());
+            }
+
+            function isSpecialResourceFromGrid(item) {
+                const parentId = item.parentElement.id;
+                return parentId === 'moonResources' || parentId === 'marsResources';
+            }
+
+            function handleSpecialResourceClick(item) {
+                if (item.parentElement.id === 'activeBonusResourceGrid') {
+                    const sourceGrid = item.getAttribute('data-resource').toLowerCase().includes('calcium') || item.getAttribute('data-resource').toLowerCase().includes('radon') || item.getAttribute('data-resource').toLowerCase().includes('silicon') || item.getAttribute('data-resource').toLowerCase().includes('titanium') ? 'moonResources' : 'marsResources';
+                    document.querySelector('#' + sourceGrid + ' .resource-grid').appendChild(item);
+                    item.classList.remove('active');
+                    updateBonuses();
+                    return;
+                }
+
+                const activeBonusGrid = document.getElementById('activeBonusResourceGrid');
+                const existingSpecial = activeBonusGrid.querySelector('[data-resource*="calcium"], [data-resource*="radon"], [data-resource*="silicon"], [data-resource*="titanium"], [data-resource*="basalt"], [data-resource*="magnesium"], [data-resource*="potassium"], [data-resource*="sodium"]');
+
+                if (existingSpecial) {
+                    const sourceGrid = existingSpecial.getAttribute('data-resource').toLowerCase().includes('calcium') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('radon') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('silicon') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('titanium') ? 'moonResources' : 'marsResources';
+                    document.querySelector('#' + sourceGrid + ' .resource-grid').appendChild(existingSpecial);
+                    existingSpecial.classList.remove('active');
+                }
+
+                activeBonusGrid.appendChild(item);
+                item.classList.add('active');
+
+                if (!item.hasAttribute('data-click-bound')) {
+                    item.addEventListener('click', () => handleResourceClick(item));
+                    item.setAttribute('data-click-bound', 'true');
+                }
+                updateBonuses();
+            }
+
+            function setupMineHandlers() {
+                const moonMine = document.getElementById('moonMine');
+                const marsMine = document.getElementById('marsMine');
+                const moonResources = document.getElementById('moonResources');
+                const marsResources = document.getElementById('marsResources');
+
+                function handleMineSelection(e) {
+                    const checkbox = e.target;
+                    const otherCheckbox = checkbox.id === 'moonMine' ? marsMine : moonMine;
+                    const activeBonusGrid = document.getElementById('activeBonusResourceGrid');
+
+                    if (checkbox.checked) {
+                        otherCheckbox.checked = false;
+
+                        const existingSpecial = activeBonusGrid.querySelector('[data-resource*="calcium"], [data-resource*="radon"], [data-resource*="silicon"], [data-resource*="titanium"], [data-resource*="basalt"], [data-resource*="magnesium"], [data-resource*="potassium"], [data-resource*="sodium"]');
+                        if (existingSpecial) {
+                            const sourceGrid = existingSpecial.getAttribute('data-resource').toLowerCase().includes('calcium') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('radon') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('silicon') || existingSpecial.getAttribute('data-resource').toLowerCase().includes('titanium') ? 'moonResources' : 'marsResources';
+                            if (sourceGrid !== (checkbox.id === 'moonMine' ? 'moonResources' : 'marsResources')) {
+                                document.querySelector('#' + sourceGrid + ' .resource-grid').appendChild(existingSpecial);
+                                existingSpecial.classList.remove('active');
+                                updateBonuses();
+                            }
+                        }
+                    }
+
+                    moonResources.style.display = moonMine.checked ? 'block' : 'none';
+                    marsResources.style.display = marsMine.checked ? 'block' : 'none';
+
+                    if (moonMine.checked || marsMine.checked) {
+                        setupSpecialResourceListeners();
+                    }
+                }
+
+                moonMine.addEventListener('change', handleMineSelection);
+                marsMine.addEventListener('change', handleMineSelection);
+
+                moonResources.style.display = 'none';
+                marsResources.style.display = 'none';
+            }
+
+            function setupSpecialResourceListeners() {
+                document.querySelectorAll('#moonResources .resource-item, #marsResources .resource-item, #activeBonusResourceGrid .special-resource').forEach(item => {
+                    if (!item.hasAttribute('data-click-bound')) {
+                        item.addEventListener('click', () => handleResourceClick(item));
+                        item.setAttribute('data-click-bound', 'true');
+                    }
+                });
+            }
+
+            function showWarning(message) {
+                const warning = document.createElement('div');
+                warning.className = 'warning-message';
+                warning.textContent = message;
+                const calculator = document.getElementById('resourceCalculator');
+                if (calculator) {
+                    calculator.appendChild(warning);
+                }
+
+                setTimeout(() => warning.remove(), 3000);
+            }
+
+            function isResourceLimitReached() {
+                return document.getElementById('activeResourceGrid').children.length >= RESOURCE_LIMIT;
+            }
+
+            const bonusRequirements = {
+                'affluent': { resources: ['fish', 'furs', 'wine'], bonuses: ['jewelry'] },
+                'asphalt': { resources: ['oil', 'rubber'], bonuses: ['construction'] },
+                'automobile': { resources: [], bonuses: ['asphalt', 'steel'] },
+                'beer': { resources: ['water', 'wheat', 'lumber', 'aluminum'], bonuses: [] },
+                'construction': { resources: ['lumber', 'iron', 'marble', 'aluminum'], bonuses: [] },
+                'fastfood': { resources: ['cattle', 'sugar', 'spices', 'pigs'], bonuses: [] },
+                'jewelry': { resources: ['gold', 'silver', 'gems', 'coal'], bonuses: [] },
+                'microchip': { resources: ['gold', 'lead', 'oil'], bonuses: [] },
+                'radiation': { resources: ['construction', 'steel'], bonuses: ['microchip'] },
+                'scholar': { resources: ['lumber', 'lead'], bonuses: [] },
+                'steel': { resources: ['coal', 'iron'], bonuses: [] }
+            };
+
+            function checkAndAddBonusResources() {
+                const activeResources = Array.from(document.getElementById('activeResourceGrid').children)
+                    .map(item => item.getAttribute('data-resource'));
+
+                Object.entries(bonusRequirements).forEach(([bonusId, requirements]) => {
+                    if (requirements.resources.length === 0) return;
+
+                    const hasAllRequirements = requirements.resources.every(resource =>
+                        activeResources.includes(resource)
+                    );
+
+                    if (hasAllRequirements) {
+                        const bonusItem = document.querySelector('#bonusResourceGrid [data-resource="' + bonusId + '"]');
+                        const isAlreadyActive = document.querySelector('#activeBonusResourceGrid [data-resource="' + bonusId + '"]');
+
+                        if (bonusItem && !isAlreadyActive) {
+                            document.getElementById('activeBonusResourceGrid').appendChild(bonusItem);
+                            bonusItem.classList.add('active');
+                            if (!bonusItem.hasAttribute('data-click-bound')) {
+                                bonusItem.addEventListener('click', () => handleResourceClick(bonusItem));
+                                bonusItem.setAttribute('data-click-bound', 'true');
+                            }
+                        }
+                    }
+                });
+            }
+
+            const resourceBonuses = {
+                economic: {
+                    'land_area': { name: 'Land Area', resources: { coal: 15, rubber: 20, spices: 8 }, format: '+%v%' },
+                    'land_cost': { name: 'Land Cost', resources: { cattle: -10, fish: -5, rubber: -10 }, format: '-%v%' },
+                    'infrastructure_purchase': { name: 'Infrastructure Purchase', resources: { aluminum: -7, coal: -4, iron: -5, lumber: -6, marble: -10, rubber: -3 }, bonuses: { construction: -5, steel: -2 }, format: '-%v%' },
+                    'infrastructure_upkeep': { name: 'Infrastructure Upkeep', resources: { iron: -10, lumber: -8, uranium: -3 }, bonuses: { asphalt: -5, basalt: -5, magnesium: -4 }, format: '-%v%' },
+                    'infrastructure_purchase': { name: 'Infrastructure Purchase', resources: { aluminum: -7, coal: -4, iron: -5, lumber: -6, marble: -10, rubber: -3 }, bonuses: { construction: -5, steel: -2, basalt: -5 }, format: '-%v%' },
+                    'citizen_count': { name: 'Citizens', resources: { cattle: 5, fish: 8, pigs: 3.5, sugar: 3, wheat: 8 }, bonuses: { affluent: 5 }, format: '+%v%' },
+                    'citizen_income': { name: 'Citizen Income', resources: { furs: 3.50, gems: 1.50, gold: 3.00, silver: 2.00 }, bonuses: { scholar: 3.00 }, format: '+$%v' },
+                    'happiness': { name: 'Happiness', resources: { gems: 2.5, oil: 1.5, silver: 2, spices: 2, sugar: 1, water: 2.5, wine: 3 }, bonuses: { automobile: 3, fastfood: 2, jewelry: 3, microchip: 2, beer: 2, basalt: 3, magnesium: 4, potassium: 3, sodium: 2 }, format: '+%v' },
+                    'tech_cost': { name: 'Technology Cost', resources: { gold: -5 }, bonuses: { microchip: -8 }, format: '-%v%' },
+                    'grl_reduction': { name: 'GRL Reduction', resources: {}, bonuses: { radiation: 50 }, format: '-%v%' }
+                },
+                military: {
+                    'soldier_efficiency': { name: 'Soldier Efficiency', resources: { aluminum: 20, coal: 8, oil: 10, pigs: 15 }, format: '+%v%' },
+                    'soldier_cost': { name: 'Soldier Cost', resources: { iron: -3, oil: -3 }, format: '-$%v' },
+                    'soldier_upkeep': { name: 'Soldier Upkeep', resources: { lead: -0.50, pigs: -0.50 }, format: '-$%v' },
+                    'aircraft_purchase': { name: 'Aircraft Purchase', resources: { aluminum: -8, oil: -4, rubber: -4 }, format: '-%v%' },
+                    'aircraft_upkeep': { name: 'Aircraft Upkeep', resources: { lead: -25 }, format: '-%v%' },
+                    'tank_purchase': { name: 'Tank Purchase', resources: { lead: -8 }, format: '-%v%' },
+                    'tank_upkeep': { name: 'Tank Upkeep', resources: { iron: -5, oil: -5, lead: -8 }, format: '-%v%' },
+                    'navy_purchase': { name: 'Navy Purchase', resources: { uranium: -5 }, bonuses: { steel: -15, microchip: -10 }, format: '-%v%' },
+                    'navy_upkeep': { name: 'Navy Upkeep', resources: { lead: -20, oil: -10 }, format: '-%v%' },
+                    'missile_costs': { name: 'Missile/Nuclear Costs', resources: { lead: -20 }, format: '-%v%' }
+                }
+            };
+
+            function handleBonusRequirements(bonusId) {
+                const requirements = bonusRequirements[bonusId];
+                if (!requirements) return false;
+
+                const activeResourceGrid = document.getElementById('activeResourceGrid');
+                const currentActiveCount = activeResourceGrid.children.length;
+                const missingResources = requirements.resources.filter(resourceId =>
+                    !document.querySelector(\`#activeResourceGrid [data-resource="\${resourceId}"]\`)
+                );
+
+                if (currentActiveCount + missingResources.length > RESOURCE_LIMIT) {
+                    showWarning('Not enough space for required resources');
+                    return false;
+                }
+
+                missingResources.forEach(resourceId => {
+                    const resourceItem = document.querySelector(\`#resourceGrid [data-resource="\${resourceId}"]\`);
+                    if (resourceItem) {
+                        activeResourceGrid.appendChild(resourceItem);
+                        resourceItem.classList.add('active');
+                    }
+                });
+
+                if (requirements.bonuses) {
+                    requirements.bonuses.forEach(requiredBonusId => {
+                        if (!document.querySelector(\`#activeBonusResourceGrid [data-resource="\${requiredBonusId}"]\`)) {
+                            handleBonusRequirements(requiredBonusId);
+                        }
+                    });
+                }
+
+                const bonusItem = document.querySelector(\`#bonusResourceGrid [data-resource="\${bonusId}"]\`);
+                if (bonusItem) {
+                    document.getElementById('activeBonusResourceGrid').appendChild(bonusItem);
+                    bonusItem.classList.add('active');
+                    if (!bonusItem.hasAttribute('data-click-bound')) {
+                        bonusItem.addEventListener('click', () => handleResourceClick(bonusItem));
+                        bonusItem.setAttribute('data-click-bound', 'true');
+                    }
+                }
+
+                updateBonuses();
+                return true;
+            }
+
+            function updateBonuses() {
+                const activeResources = Array.from(document.getElementById('activeResourceGrid').children)
+                    .map(item => item.getAttribute('data-resource'));
+                const activeBonuses = Array.from(document.getElementById('activeBonusResourceGrid').children)
+                    .map(item => item.getAttribute('data-resource'));
+
+                const counter = document.getElementById('resourceCounter');
+                counter.textContent = \`\${activeResources.length}/12\`;
+
+                const bonusTotals = calculateBonuses(activeResources, activeBonuses);
+                updateBonusDisplay(bonusTotals);
+            }
+
+            function calculateBonuses(activeResources, activeBonuses) {
+                const bonusTotals = { economic: {}, military: {} };
+
+                Object.keys(resourceBonuses).forEach(type => {
+                    Object.keys(resourceBonuses[type]).forEach(category => {
+                        bonusTotals[type][category] = 0;
+                    });
+                });
+
+                const activeSpecialResources = Array.from(document.getElementById('activeBonusResourceGrid').children)
+                    .filter(item => isSpecialResource(item))
+                    .map(item => item.getAttribute('data-resource').toLowerCase());
+
+                const allActiveResources = [...activeResources, ...activeSpecialResources];
+
+                Object.entries(resourceBonuses).forEach(([type, categories]) => {
+                    Object.entries(categories).forEach(([category, data]) => {
+                        allActiveResources.forEach(resource => {
+                            if (data.resources && data.resources[resource]) {
+                                bonusTotals[type][category] += data.resources[resource];
+                            }
+                        });
+
+                        activeBonuses.forEach(bonus => {
+                            if (data.bonuses && data.bonuses[bonus]) {
+                                bonusTotals[type][category] += data.bonuses[bonus];
+                            }
+                        });
+
+                        activeSpecialResources.forEach(special => {
+                            if (data.bonuses && data.bonuses[special]) {
+                                bonusTotals[type][category] += data.bonuses[special];
+                            }
+                        });
+                    });
+                });
+
+
+
+
+
+                if (activeBonuses.includes('radiation')) {
+                    let grlReduction = 50;
+                    if (activeSpecialResources.includes('sodium')) grlReduction = 75;
+                    if (!bonusTotals.economic.grl_reduction) bonusTotals.economic.grl_reduction = 0;
+                    bonusTotals.economic.grl_reduction = grlReduction;
+                }
+
+                activeSpecialResources.forEach(special => {
+                    switch(special) {
+                        case 'calcium':
+                            const calciumResources = ['rubber', 'furs', 'spices', 'wine'];
+                            const calciumBonus = calciumResources.filter(r => activeResources.includes(r)).length * 3.00;
+                            if (calciumBonus > 0) {
+                                bonusTotals.economic.citizen_income += calciumBonus;
+                            }
+                            break;
+                        case 'radon':
+                            const radonResources = ['lead', 'gold', 'water', 'uranium'];
+                            const radonBonus = radonResources.filter(r => activeResources.includes(r)).length * 3.00;
+                            if (radonBonus > 0) {
+                                bonusTotals.economic.citizen_income += radonBonus;
+                            }
+                            break;
+                        case 'silicon':
+                            const siliconResources = ['rubber', 'furs', 'gems', 'silver'];
+                            const siliconBonus = siliconResources.filter(r => activeResources.includes(r)).length * 3.00;
+                            if (siliconBonus > 0) {
+                                bonusTotals.economic.citizen_income += siliconBonus;
+                            }
+                            break;
+                        case 'titanium':
+                            const titaniumResources = ['gold', 'lead', 'coal', 'oil'];
+                            const titaniumBonus = titaniumResources.filter(r => activeResources.includes(r)).length * 3.00;
+                            if (titaniumBonus > 0) {
+                                bonusTotals.economic.citizen_income += titaniumBonus;
+                            }
+                            break;
+                    }
+                });
+
+                return bonusTotals;
+            }
+
+            function updateBonusDisplay(bonusTotals) {
+                ['economic', 'military'].forEach(type => {
+                    const container = document.querySelector(\`.\${type}-bonuses\`);
+                    if (!container) return;
+
+                    container.innerHTML = '';
+
+                    Object.entries(resourceBonuses[type]).forEach(([category, data]) => {
+                        const value = bonusTotals[type][category];
+                        if (value !== 0) {
+                            const bar = document.createElement('div');
+                            bar.className = 'bonus-bar';
+                            bar.innerHTML = \`
+                                <span class="bonus-name">\${data.name}</span>
+                                <span class="bonus-value \${value < 0 ? 'negative' : 'positive'}">
+                                    \${formatBonusValue(value, data.format)}
+                                </span>
+                            \`;
+                            container.appendChild(bar);
+                        }
+                    });
+                });
+            }
+
+            function formatBonusValue(value, format) {
+                const absValue = Math.abs(value);
+                const sign = value >= 0 ? '+' : '-';
+
+                switch (format) {
+                    case '+%v%':
+                    case '-%v%':
+                        return \`\${sign}\${absValue.toFixed(1)}%\`;
+                    case '+$%v':
+                    case '-$%v':
+                        return \`\${sign}\$\${absValue.toFixed(2)}\`;
+                    default:
+                        return \`\${sign}\${absValue.toFixed(1)}\`;
+                }
+            }
+
+            function handlePresetSelection(e) {
+                const selectedPreset = e.target.value;
+                if (selectedPreset === 'none') return;
+
+                resetResources();
+
+                const presetResources = presetConfigurations[selectedPreset];
+                if (presetResources) {
+                    presetResources.forEach(resourceId => {
+                        const resourceElement = document.querySelector(\`#resourceGrid [data-resource="\${resourceId}"]\`);
+                        if (resourceElement) {
+                            document.getElementById('activeResourceGrid').appendChild(resourceElement);
+                            resourceElement.classList.add('active');
+                        }
+                    });
+                    checkAndAddBonusResources();
+                    updateBonuses();
+                }
+            }
+
+            function resetResources() {
+                ['activeResourceGrid', 'activeBonusResourceGrid'].forEach(gridId => {
+                    const grid = document.getElementById(gridId);
+                    while (grid.firstChild) {
+                        const item = grid.firstChild;
+                        const isBonus = item.classList.contains('bonus-item');
+                        const isSpecial = isSpecialResource(item);
+
+                        let targetGrid;
+                        if (isSpecial) {
+                            const resourceName = item.getAttribute('data-resource').toLowerCase();
+                            if (['calcium', 'radon', 'silicon', 'titanium'].includes(resourceName)) {
+                                targetGrid = document.querySelector('#moonResources .resource-grid');
+                            } else {
+                                targetGrid = document.querySelector('#marsResources .resource-grid');
+                            }
+                        } else {
+                            targetGrid = document.getElementById(isBonus ? 'bonusResourceGrid' : 'resourceGrid');
+                        }
+
+                        targetGrid.appendChild(item);
+                        item.classList.remove('active');
+                    }
+                });
+
+                document.getElementById('moonMine').checked = false;
+                document.getElementById('marsMine').checked = false;
+
+                updateBonuses();
+            }
+
+            function importCurrentResources() {
+                const nationId = localStorage.getItem('cn:lastNationId');
+                if (!nationId) return;
+
+                const stats = JSON.parse(localStorage.getItem('cn:stats:' + nationId) || '{}');
+                if (!stats.resources || !stats.bonusResources) return;
+
+                resetResources();
+
+                stats.resources.forEach(resourceName => {
+                    const resourceElement = document.querySelector(\`#resourceGrid [data-resource="\${resourceName.toLowerCase()}"]\`);
+                    if (resourceElement) {
+                        document.getElementById('activeResourceGrid').appendChild(resourceElement);
+                        resourceElement.classList.add('active');
+                    }
+                });
+
+                checkAndAddBonusResources();
+
+                stats.bonusResources.forEach(bonusName => {
+                    const bonusNameLower = bonusName.toLowerCase();
+                    let bonusElement = document.querySelector(\`#bonusResourceGrid [data-resource="\${bonusNameLower}"]\`);
+
+                    if (!bonusElement && ['calcium', 'radon', 'silicon', 'titanium', 'basalt', 'magnesium', 'potassium', 'sodium'].includes(bonusNameLower)) {
+                        if (['calcium', 'radon', 'silicon', 'titanium'].includes(bonusNameLower)) {
+                            bonusElement = document.querySelector(\`#moonResources [data-resource="\${bonusNameLower}"]\`);
+                        } else {
+                            bonusElement = document.querySelector(\`#marsResources [data-resource="\${bonusNameLower}"]\`);
+                        }
+                    }
+
+                    if (bonusElement) {
+                        document.getElementById('activeBonusResourceGrid').appendChild(bonusElement);
+                        bonusElement.classList.add('active');
+                    }
+                });
+
+                updateBonuses();
+            }
+
+            const presetConfigurations = {
+                '3br-a': ['aluminum', 'cattle', 'iron', 'lumber', 'marble', 'pigs', 'spices', 'sugar', 'water', 'wheat', 'fish'],
+                '3br-b': ['cattle', 'coal', 'fish', 'furs', 'gems', 'gold', 'pigs', 'silver', 'spices', 'sugar', 'wine', 'wheat'],
+                '4br-a': ['aluminum', 'cattle', 'coal', 'iron', 'lumber', 'marble', 'pigs', 'spices', 'sugar', 'water', 'wheat', 'fish'],
+                '5br-a': ['aluminum', 'coal', 'iron', 'lumber', 'marble', 'oil', 'rubber', 'water', 'wheat', 'fish'],
+                '7br-a': ['aluminum', 'coal', 'gold', 'iron', 'lead', 'lumber', 'marble', 'oil', 'rubber', 'fish', 'wheat'],
+                '8br-a': ['aluminum', 'coal', 'gems', 'gold', 'iron', 'lead', 'lumber', 'marble', 'oil', 'rubber', 'silver']
+            };
+
+            function loadCustomPresets() {
+                const customPresets = JSON.parse(localStorage.getItem('cn:customPresets') || '{}');
+                Object.assign(presetConfigurations, customPresets);
+                updatePresetSelect();
+            }
+
+            function updatePresetSelect() {
+                const select = document.getElementById('presetSelect');
+                if (!select) return;
+
+                const currentValue = select.value;
+                select.innerHTML = '<option value="none">Select Preset</option>';
+
+                Object.keys(presetConfigurations).forEach(key => {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = key.toUpperCase();
+                    select.appendChild(option);
+                });
+
+                if (currentValue && presetConfigurations[currentValue]) {
+                    select.value = currentValue;
+                }
+            }
+
+            function saveCurrentAsPreset() {
+                const nameInput = document.getElementById('customPresetName');
+                const name = nameInput.value.trim();
+                if (!name) return;
+
+                const activeResources = Array.from(document.getElementById('activeResourceGrid').children)
+                    .map(item => item.getAttribute('data-resource'));
+                const activeBonusResources = Array.from(document.getElementById('activeBonusResourceGrid').children)
+                    .map(item => item.getAttribute('data-resource'));
+
+                if (activeResources.length === 0) return;
+
+                const customPresets = JSON.parse(localStorage.getItem('cn:customPresets') || '{}');
+                customPresets[name] = activeResources;
+                localStorage.setItem('cn:customPresets', JSON.stringify(customPresets));
+
+                presetConfigurations[name] = activeResources;
+                updatePresetSelect();
+                nameInput.value = '';
+
+                showWarning('Preset saved successfully!');
+            }
+
+            function deleteSelectedPreset() {
+                const select = document.getElementById('presetSelect');
+                const selectedValue = select.value;
+                if (selectedValue === 'none' || !presetConfigurations[selectedValue]) return;
+
+                if (selectedValue.startsWith('3br-') || selectedValue.startsWith('4br-') || selectedValue.startsWith('5br-') || selectedValue.startsWith('7br-') || selectedValue.startsWith('8br-')) {
+                    showWarning('Cannot delete built-in presets');
+                    return;
+                }
+
+                const customPresets = JSON.parse(localStorage.getItem('cn:customPresets') || '{}');
+                delete customPresets[selectedValue];
+                localStorage.setItem('cn:customPresets', JSON.stringify(customPresets));
+
+                delete presetConfigurations[selectedValue];
+                updatePresetSelect();
+
+                showWarning('Preset deleted successfully!');
+            }
+
+            initializeResourceCalculator();
+        `;
+
+        eval(calcScript);
+    }, 100);
+}
+
   try { main(); } catch (e) { /* swallow */ }
 })();
-
-
